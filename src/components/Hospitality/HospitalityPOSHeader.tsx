@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Search, Receipt } from 'lucide-react';
-import { useApp } from '../../../store';
+import { useAuth } from '../../auth';
 
 interface HospitalityPOSHeaderProps {
   editingOrderId: string | null;
@@ -24,7 +24,8 @@ export const HospitalityPOSHeader: React.FC<HospitalityPOSHeaderProps> = ({
   onNewInvoice,
   posInfo,
 }) => {
-  const { currentUser } = useApp();
+  // useApp().currentUser غير موثوق هون - راجع نفس الملاحظة بـPOSHeader.tsx
+  const { user: authUser } = useAuth();
   return (
     <header className="mb-3 bg-slate-900 p-3 sm:p-4 rounded-2xl border border-white/5 shadow-xl">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -40,12 +41,12 @@ export const HospitalityPOSHeader: React.FC<HospitalityPOSHeaderProps> = ({
 
           {/* ترحيب بالمستخدم ورقم المحطة — حتى ما تحتاج تطبع فاتورة لتتأكد
               مين مسجّل دخول وعلى أي محطة. */}
-          {(currentUser?.name || posInfo?.code) && (
+          {(authUser?.name || posInfo?.code) && (
             <span
               title={posInfo?.name || undefined}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-[10px] font-black border border-white/5 whitespace-nowrap"
             >
-              مرحبًا، {currentUser?.name || '—'}
+              مرحبًا، {authUser?.name || '—'}
               {posInfo?.code && (
                 <span className="text-emerald-400">({posInfo.code})</span>
               )}

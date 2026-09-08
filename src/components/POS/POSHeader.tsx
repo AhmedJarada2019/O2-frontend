@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, RefreshCw, Loader2, Archive } from 'lucide-react';
 import { useApp } from '../../../store';
+import { useAuth } from '../../auth';
 import api from '../../api/axios';
 import { toast } from '../shared/Toast';
 
@@ -19,7 +20,13 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
   editingOrderId, isHospitality, activePOSMode, setActivePOSMode,
   searchQuery, setSearchQuery, clearCart, posInfo,
 }) => {
-  const { currentShift, rollover, userRole, currentUser } = useApp();
+  const { currentShift, rollover, userRole } = useApp();
+  // useApp().currentUser غير موثوق هون: تسجيل الدخول الفعلي (Login.tsx)
+  // بيمرر (username, role) بس لـstore.login()، يلي متوقّع كائن User كامل -
+  // فبينحفظ اسم المستخدم (string) بمكان user كامل، و.name عليه بترجع
+  // undefined. AuthContext (useAuth) هو المصدر الصحيح لاسم المستخدم
+  // الفعلي (معبّى من GET /auth/me).
+  const { user: authUser } = useAuth();
   const [rolloverLoading, setRolloverLoading] = useState(false);
   const [showRolloverConfirm, setShowRolloverConfirm] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
@@ -79,12 +86,12 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           {/* ترحيب بالمستخدم ورقم المحطة — حتى ما تحتاج تطبع فاتورة لتتأكد
               مين مسجّل دخول وعلى أي محطة (مهم خصوصًا لما يكون أكتر من
               كاشير/محطة شغالين بنفس الوقت). */}
-          {(currentUser?.name || posInfo?.code) && (
+          {(authUser?.name || posInfo?.code) && (
             <span
               title={posInfo?.name || undefined}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-[10px] font-black border border-white/5 whitespace-nowrap"
             >
-              مرحبًا، {currentUser?.name || '—'}
+              مرحبًا، {authUser?.name || '—'}
               {posInfo?.code && (
                 <span className="text-emerald-400">({posInfo.code})</span>
               )}
