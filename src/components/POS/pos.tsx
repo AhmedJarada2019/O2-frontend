@@ -1220,6 +1220,8 @@ const handlePrintInvoice = async (
         branch_id: branchId,
         cashier_id: currentUser?.id ? Number(currentUser.id) : undefined,
         order_type: effectiveOrderType,
+        // «فوري» = تبويب Takeaway في نقطة البيع — يُحفظ مستقلاً عن order_type
+        is_fawri: cartOrderType === OrderType.TAKEAWAY,
         table_number: activeTable?.table_number || activeTable?.number.toString(),
         dining_table_id: activeTable ? Number(activeTable.id) : undefined,
         customer_name: meta.name || undefined,
@@ -1401,7 +1403,7 @@ const handlePrintInvoice = async (
   }
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-full bg-slate-950 overflow-y-auto lg:overflow-hidden p-2 sm:p-4 lg:p-0 custom-scrollbar relative">
+    <div className="flex flex-col lg:flex-row-reverse gap-4 h-full bg-slate-950 overflow-y-auto lg:overflow-hidden p-2 sm:p-4 lg:p-0 custom-scrollbar relative">
       {/* Submitting Overlay */}
       <AnimatePresence>
         {submitting && (
@@ -1421,7 +1423,7 @@ const handlePrintInvoice = async (
         )}
       </AnimatePresence>
 
-      {/* Left Panel: Menu Area */}
+      {/* Menu Area — left side on desktop */}
       <div
         className={`flex-1 flex flex-col min-w-0 h-full ${isCartOpen ? "hidden lg:flex" : "flex"}`}
       >
@@ -1432,6 +1434,7 @@ const handlePrintInvoice = async (
             setSearchQuery={setSearchQuery}
             clearCart={clearActiveCart}
             onNewInvoice={clearActiveCart}
+            posInfo={posInfo}
           />
         ) : (
           <POSHeader
@@ -1442,6 +1445,7 @@ const handlePrintInvoice = async (
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             clearCart={clearActiveCart}
+            posInfo={posInfo}
           />
         )}
 
@@ -1487,7 +1491,7 @@ const handlePrintInvoice = async (
         </div>
       </div>
 
-      {/* Right Panel: Cart */}
+      {/* Invoice / Cart — right side on desktop */}
       <CartPanel {...commonCartProps} />
 
       {/* Mobile Cart Button */}
@@ -1531,14 +1535,13 @@ const handlePrintInvoice = async (
         customerName={customerName}
         setCustomerName={setCustomerName}
         setPosError={setPosError}
-        onConfirm={() =>
-          submitOrder(
-            OrderStatus.DELIVERED,
-            paymentMethod,
-            calculatedDiscount,
-            { name: customerName, phone: customerPhone, note: invoiceNote },
-          )
-        }
+        onConfirm={() => {
+          // بدل الإغلاق مباشرة بطريقة دفع افتراضية "كاش" — نفتح مودال طريقة الدفع
+          // ليختار الكاشير كاش/بطاقة/محفظة.
+          setShowCustomerModal(false);
+          setPendingCloseKind("dine_in");
+          setShowPaymentMethodModal(true);
+        }}
       />
 
       <PaymentMethodModal

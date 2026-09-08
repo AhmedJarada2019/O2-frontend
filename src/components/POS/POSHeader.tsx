@@ -12,13 +12,14 @@ interface POSHeaderProps {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   clearCart: () => void;
+  posInfo?: { code?: string; name?: string } | null;
 }
 
 export const POSHeader: React.FC<POSHeaderProps> = ({
   editingOrderId, isHospitality, activePOSMode, setActivePOSMode,
-  searchQuery, setSearchQuery, clearCart,
+  searchQuery, setSearchQuery, clearCart, posInfo,
 }) => {
-  const { currentShift, rollover, userRole } = useApp();
+  const { currentShift, rollover, userRole, currentUser } = useApp();
   const [rolloverLoading, setRolloverLoading] = useState(false);
   const [showRolloverConfirm, setShowRolloverConfirm] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
@@ -63,8 +64,8 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
 
   return (
     <header className="mb-3 bg-slate-900 p-3 sm:p-5 rounded-2xl border border-white/5 shadow-xl space-y-4">
-      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 shrink-0 w-full xl:w-auto justify-between xl:justify-start">
+      <div className="flex flex-col @2xl:flex-row items-start @2xl:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 shrink-0 w-full @2xl:w-auto justify-between @2xl:justify-start">
           <h2
             onClick={clearCart}
             className="text-base sm:text-lg font-black text-white tracking-tight whitespace-nowrap cursor-pointer hover:text-red-500 transition-colors"
@@ -74,7 +75,22 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           {editingOrderId && (
             <button onClick={clearCart} className="text-[10px] font-black text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-xl transition-colors border border-red-500/20">إلغاء</button>
           )}
-          
+
+          {/* ترحيب بالمستخدم ورقم المحطة — حتى ما تحتاج تطبع فاتورة لتتأكد
+              مين مسجّل دخول وعلى أي محطة (مهم خصوصًا لما يكون أكتر من
+              كاشير/محطة شغالين بنفس الوقت). */}
+          {(currentUser?.name || posInfo?.code) && (
+            <span
+              title={posInfo?.name || undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-[10px] font-black border border-white/5 whitespace-nowrap"
+            >
+              مرحبًا، {currentUser?.name || '—'}
+              {posInfo?.code && (
+                <span className="text-emerald-400">({posInfo.code})</span>
+              )}
+            </span>
+          )}
+
           {/* فتح صندوق النقدية (F9) */}
           <button
             onClick={handleOpenDrawer}
@@ -137,7 +153,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
         </div>
 
         {/* Search Bar */}
-        <div className="w-full xl:flex-1 relative group">
+        <div className="w-full @2xl:flex-1 relative group">
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-red-500 transition-colors pointer-events-none">
             <Search size={16} />
           </div>
