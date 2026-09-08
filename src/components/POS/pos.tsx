@@ -1031,7 +1031,14 @@ const handlePrintInvoice = async (
   setIsPrinting(true); // استخدام الدالة المعرفة مسبقاً في ملفك
   try {
     // mode: departments = نسخ الأقسام فقط | merged = الفاتورة المدمجة فقط | all = الاثنين
-    const response = await api.post(`/orders/${orderId}/print-invoice`, { mode });
+    // pos_register_id: هوية محطة الكاشير الفعلية (من تفعيل الجهاز) — لازم
+    // نرسلها صراحة، وإلا السيرفر بيرفض الطباعة (أو يخمّن محطة غلط قديمًا).
+    // ‼️ هاد السطر اختفى مرة سابقة بدون تفسير واضح - لو بتلمس هالدالة
+    // لأي سبب، تأكد إنه pos_register_id يضل موجود بجسم الطلب.
+    const response = await api.post(`/orders/${orderId}/print-invoice`, {
+      mode,
+      pos_register_id: posInfo?.id ?? null,
+    });
 
     if (response.data && response.data.success) {
       toast.success(response.data.message || "تم إرسال أمر الطباعة إلى الطابعة");
