@@ -59,6 +59,14 @@ const MONEY_EPSILON = 0.01;
 const roundMoney = (value: number) =>
   Math.round((Number(value) || 0) * 100) / 100;
 
+// الكمية بتنخزن على الباك اند كـ decimal(15,4) (أصناف الوزن: كمية مشتقّة من
+// الإجمالي ÷ السعر). نقرّبها لـ4 خانات عشرية قبل ما نخزّنها بالسلة حتى:
+//   • subtotal الواجهة يطابق اللي بيحسبه الباك اند (ما يطلع «المبلغ المدفوع
+//     ناقص/زائد» وقت الإغلاق)
+//   • السطر يرجّع نفس الإجمالي اللي كتبه الكاشير (10 ÷ 35 = 0.2857 → ×35 ≈ 10)
+const roundQty = (value: number) =>
+  Math.round((Number(value) || 0) * 10000) / 10000;
+
 const requiresPaymentReference = (method: PaymentMethod) =>
   method === PaymentMethod.WALLET ||
   method === PaymentMethod.QR ||
@@ -538,17 +546,25 @@ const handleActivationSuccess = (activatedInfo: any) => {
     [currentCart, engineDiscountItems],
   );
 
+  // خلال إعادة حساب الخصم (loading) أو عند فشلها (error)، قيم المحرك
+  // (engineOriginalSubtotal / engineDiscountTotal) بتضل قديمة من حالة سلة
+  // سابقة. الاعتماد عليها كان بيخلي `total` غير مستقر — خصوصاً مع أصناف
+  // الوزن اللي كل ضغطة زر بتطلق نداء محرك جديد — فيطلع "المبلغ المدفوع
+  // ناقص/زائد" وقت الإغلاق رغم إن الكاشير دفع الظاهر عالشاشة. وقتها منعتمد
+  // على subtotal المحلي (Σ سعر×كمية) بدون خصم محرك.
+  const engineReady = !discountLoading && !discountError;
+  const safeEngineDiscountTotal = engineReady ? engineDiscountTotal : 0;
   const displaySubtotal =
-    engineOriginalSubtotal > 0 ? engineOriginalSubtotal : subtotal;
+    engineReady && engineOriginalSubtotal > 0 ? engineOriginalSubtotal : subtotal;
   const afterEngineSubtotal = Math.max(
     0,
-    displaySubtotal - engineDiscountTotal,
+    displaySubtotal - safeEngineDiscountTotal,
   );
   const manualDiscount =
     discountType === "PERCENT"
       ? (afterEngineSubtotal * discountValue) / 100
       : discountValue;
-  const calculatedDiscount = roundMoney(engineDiscountTotal + manualDiscount);
+  const calculatedDiscount = roundMoney(safeEngineDiscountTotal + manualDiscount);
   const total = roundMoney(Math.max(0, displaySubtotal - calculatedDiscount));
   const totalPaid = roundMoney(
     payments.reduce((sum, payment) => sum + payment.amount, 0),
@@ -1033,7 +1049,7 @@ const handlePrintInvoice = async (
     // mode: departments = نسخ الأقسام فقط | merged = الفاتورة المدمجة فقط | all = الاثنين
     // pos_register_id: هوية محطة الكاشير الفعلية (من تفعيل الجهاز) — لازم
     // نرسلها صراحة، وإلا السيرفر بيرفض الطباعة (أو يخمّن محطة غلط قديمًا).
-    // ‼️ هاد السطر اختفى مرة سابقة بدون تفسير واضح - لو بتلمس هالدالة
+    // ‼️ هاد السطر اختفى مرتين سابقًا بدون تفسير واضح - لو بتلمس هالدالة
     // لأي سبب، تأكد إنه pos_register_id يضل موجود بجسم الطلب.
     const response = await api.post(`/orders/${orderId}/print-invoice`, {
       mode,
@@ -1091,7 +1107,7 @@ const handlePrintInvoice = async (
   };
 
   const handleQuantityBlur = (uniqueId: string, val: string) => {
-    updateCartItem(uniqueId, { quantity: Math.max(0, parseFloat(val) || 0) } as any);
+    updateCartItem(uniqueId, { quantity: roundQty(Math.max(0, parseFloat(val) || 0)) } as any);
     setEditingQty((prev) => {
       const n = { ...prev };
       delete n[uniqueId];
@@ -1107,7 +1123,7 @@ const handlePrintInvoice = async (
     const newTotal = parseFloat(val);
     if (!isNaN(newTotal))
       updateCartItem(uniqueId, {
-        quantity: price > 0 ? Math.max(0, newTotal / price) : 0,
+        quantity: price > 0 ? roundQty(Math.max(0, newTotal / price)) : 0,
       } as any);
   };
 
@@ -1328,6 +1344,11 @@ const handlePrintInvoice = async (
     }
   };
 
+  // أي بوباب مفتوح فوق الشاشة — يعطّل اختصارات/تنقّل الكاشير اللي وراءه
+  // (السلة، شبكة الأصناف، فتح صندوق النقدية...) حتى ما تتحرك الصفحة بالغلط.
+  const isModalOpen =
+    showPaymentMethodModal || showSearchModal || showQuickAddCustomer || showCustomerModal;
+
   const commonCartProps = {
     isCartOpen,
     setIsCartOpen,
@@ -1340,7 +1361,7 @@ const handlePrintInvoice = async (
     onViewTables,
     subtotal: displaySubtotal,
     calculatedDiscount,
-    engineDiscountTotal,
+    engineDiscountTotal: safeEngineDiscountTotal,
     manualDiscount,
     appliedDiscounts,
     discountLoading,
@@ -1383,6 +1404,7 @@ const handlePrintInvoice = async (
       setPendingCloseKind(kind);
       setShowPaymentMethodModal(true);
     },
+    isModalOpen,
   };
   // 1. إذا كان النظام ما زال يفحص هوية المتصفح
   if (checkingSecurity) {
@@ -1441,7 +1463,6 @@ const handlePrintInvoice = async (
             setSearchQuery={setSearchQuery}
             clearCart={clearActiveCart}
             onNewInvoice={clearActiveCart}
-            posInfo={posInfo}
           />
         ) : (
           <POSHeader
@@ -1452,6 +1473,7 @@ const handlePrintInvoice = async (
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             clearCart={clearActiveCart}
+            isModalOpen={isModalOpen}
             posInfo={posInfo}
           />
         )}
@@ -1467,6 +1489,7 @@ const handlePrintInvoice = async (
               searchQuery={searchQuery}
               addToCart={addToCart}
               loading={menuLoading}
+              isModalOpen={isModalOpen}
             />
           ) : activePOSMode === "contact" ? (
             <ContactInfoTab

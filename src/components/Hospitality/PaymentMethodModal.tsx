@@ -66,6 +66,8 @@ interface EntityResult {
   creditLimit?: number;
   isBlocked?: boolean;
   status?: string;
+  /** الرقم الوظيفي — موظفين بس، يُستخدم كرقم الحساب بدل الـ id الداخلي */
+  employeeId?: string;
 }
 
 type AccountType = "ACCOUNT" | "SUPPLIER" | "EMPLOYEE";
@@ -109,17 +111,126 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
   setCustomerPhone,
   accountType,
   setAccountType,
-  accountNumber,
+  // accountNumber ما بينقرا هون — accountSearchText هو نص الخانة، و setAccountNumber
+  // بس بيخزّن الـ id الداخلي وقت اختيار حساب.
   setAccountNumber,
   setShowSearchModal,
 }) => {
   const [lines, setLines] = useState<LineState[]>([]);
   const [error, setError] = useState("");
   const accountSearchInputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const methodsGridRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  // اختصار F7 (تأكيد وتحصيل) — محفوظ بـ ref لأن مستمع الكيبورد تحت مربوط بـ
+  // [show] فقط، فلو ناديناه مباشرة رح يمسك نسخة قديمة من lines/selectedEntity.
+  const confirmHotkeyRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   const showAccountFields = !!setCustomerName;
 
+  // ── التنقل بالأسهم بين عناصر المودال (أزرار + بوكسات الإدخال) ────────────
+  // الأزرار: أي سهم ينقل للعنصر التالي/السابق (يسار/أسفل = التالي RTL).
+  // البوكسات (input/select): أعلى/أسفل تنقل بين الحقول ، يمين/يسار تبقى داخل النص.
+  // Enter = تفعيل الزر المحدّد ، Esc = إغلاق.
+  useEffect(() => {
+    if (!show) return;
+
+    const SELECTOR =
+      "button:not(:disabled), input:not(:disabled):not([type=hidden]), select:not(:disabled), textarea:not(:disabled)";
+
+    const getNavEls = () =>
+      Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(SELECTOR) ?? [],
+      ).filter((el) => el.offsetParent !== null);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      // F7 = اختصار "تأكيد وتحصيل الفاتورة" (طباعة + تنفيذ) — نفس زر "إغلاق"
+      // اللي فتح البوباب من السلة. يخلّي الكاشير يقفل الفاتورة بالكيبورد بدون
+      // ما يوصل لزر التأكيد بالماوس/التاب. يشتغل بوضع فوري ومحلي (الطباعة
+      // بتصير من onConfirm بـ pos.tsx: fawri للفوري / merged للمحلي).
+      if (e.key === "F7") {
+        e.preventDefault();
+        confirmHotkeyRef.current();
+        return;
+      }
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"].includes(e.key)) return;
+
+      const ae = document.activeElement as HTMLElement | null;
+      const isButton = ae instanceof HTMLButtonElement;
+      const isField =
+        !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT");
+
+      if (e.key === "Enter") {
+        if (isButton) {
+          e.preventDefault();
+          ae!.click();
+          return;
+        }
+        // داخل حقل إدخال: Enter = "تأكيد وتحصيل الفاتورة" (نفس F7 والزر الأحمر)
+        // حتى يقدر الكاشير يعبّي كل البيانات ويضغط Enter مباشرة بدون ما يوصل
+        // للزر. الاستثناء الوحيد خانة بحث الحساب — Enter عندها بيختار أول
+        // نتيجة (لها onKeyDown خاص فيها).
+        if (isField) {
+          if (ae === accountSearchInputRef.current) return;
+          e.preventDefault();
+          confirmHotkeyRef.current();
+        }
+        return;
+      }
+
+      // داخل بوكس نص: يمين/يسار تحرّك المؤشر — ما بنتدخل
+      if (isField && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
+
+      const els = getNavEls();
+      if (els.length === 0) return;
+
+      const forward = e.key === "ArrowLeft" || e.key === "ArrowDown"; // RTL
+      const cur = ae ? els.indexOf(ae) : -1;
+      const next =
+        cur === -1
+          ? forward
+            ? 0
+            : els.length - 1
+          : (cur + (forward ? 1 : -1) + els.length) % els.length;
+
+      const target = els[next];
+      target.focus();
+      if (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio") {
+        target.select();
+      }
+      e.preventDefault();
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [show]);
+
+  // تركيز أول طريقة دفع عند فتح المودال حتى تشتغل الأسهم فوراً
+  useEffect(() => {
+    if (!show) return;
+    const t = setTimeout(() => {
+      methodsGridRef.current
+        ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.focus();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [show]);
+
   // ── بحث الحساب (عميل/مورد/موظف) ─────────────────────────────────────────
+  // accountSearchText: نص خانة البحث نفسه (اللي الكاشير بيكتبه/بيشوفه) —
+  // منفصل عمداً عن accountNumber (الـ id الداخلي الحقيقي المرسل للباكند
+  // وقت التحصيل). قبل هذا الفصل، اختيار نتيجة كان يبدّل نص الخانة لـ id
+  // داخلي مختلف عن الرقم اللي الكاشير كتبه فعلاً (مثلاً يكتب "45" ويطلع
+  // له رقم تاني بعد الإنتر) — هلق الخانة بتضل عارضة نفس اللي كتبه.
+  const [accountSearchText, setAccountSearchText] = useState("");
   const [showAccountSuggestions, setShowAccountSuggestions] = useState(false);
   const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -137,7 +248,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
   );
 
   useEffect(() => {
-    if (!showAccountFields || !accountNumber || accountNumber.length < 1 || !showAccountSuggestions) {
+    if (!showAccountFields || !accountSearchText || accountSearchText.length < 1 || !showAccountSuggestions) {
       setEntityResults([]);
       return;
     }
@@ -148,7 +259,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
         let results: EntityResult[] = [];
 
         if (accountType === "ACCOUNT") {
-          const res = await customerService.list({ search: accountNumber, per_page: 10 });
+          const res = await customerService.list({ search: accountSearchText, per_page: 10 });
           const paginatedData: any = res?.data?.data;
           const data: any[] = Array.isArray(paginatedData) ? paginatedData : (paginatedData?.data || []);
           results = data.map((c: any) => ({
@@ -160,7 +271,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
             isBlocked: c.status === "blocked" || false,
           }));
         } else if (accountType === "SUPPLIER") {
-          const res = await supplierService.list({ search: accountNumber, per_page: 10 });
+          const res = await supplierService.list({ search: accountSearchText, per_page: 10 });
           const data = res?.data?.data || [];
           results = data.map((s: any) => ({
             id: s.id,
@@ -169,7 +280,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
             balance: s.balance || 0,
           }));
         } else if (accountType === "EMPLOYEE") {
-          const data = await employeeService.getAll({ search: accountNumber });
+          const data = await employeeService.getAll({ search: accountSearchText });
           const employeesData = Array.isArray(data) ? data : [];
           results = employeesData.map((e: any) => ({
             id: e.id,
@@ -177,6 +288,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
             phone: e.phone || "",
             balance: e.outstanding_advance || 0,
             status: e.employment_status,
+            employeeId: e.employeeId || undefined,
           }));
         }
 
@@ -190,7 +302,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [accountNumber, accountType, showAccountSuggestions, showAccountFields]);
+  }, [accountSearchText, accountType, showAccountSuggestions, showAccountFields]);
 
   useEffect(() => {
     if (!selectedEntity) return;
@@ -206,10 +318,26 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
       setSelectedEntity(null);
       setShowAccountSuggestions(false);
       setEntityResults([]);
+      setAccountSearchText("");
     }
   }, [show]);
 
+  // قفل تمرير الصفحة اللي وراء المودال حتى ما تتحرك الفاتورة أثناء فتحه
+  useEffect(() => {
+    if (!show) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [show]);
+
   const handleSelectAccount = (entity: EntityResult) => {
+    // مهم: accountNumber هون هو الـ id الداخلي الفعلي اللي بينبعت للباكند
+    // كـ entity_id/subledger_id وقت تحصيل الدفعة (راجع pos.tsx) — لازم يضل
+    // رقم قاعدة البيانات الحقيقي بغض النظر عن نوع الحساب، وإلا بتتحصّل
+    // الدفعة عالموظف/الحساب الغلط. الرقم الوظيفي يُعرض للكاشير للتأكيد بس
+    // (selectedEntity.employeeId بالبادج تحت)، ما بيغيّر قيمة accountNumber.
     setAccountNumber?.(String(entity.id));
     setSelectedEntity(entity);
     setShowAccountSuggestions(false);
@@ -310,28 +438,34 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
     emit([{ method: entityPaymentMethod, amount: roundMoney(total), reference: undefined }]);
   };
 
-  return (
-    <AnimatePresence>
-      {show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" dir="rtl">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-slate-900 w-full max-w-md rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden p-7 space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-white">إتمام الفاتورة</h3>
-              <button
-                onClick={handleClose}
-                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
+  // اختصار F7 (وEnter داخل حقل إدخال) = نفس منطق الزر الأحمر "تأكيد وتحصيل"،
+  // ويحصّل الفاتورة بضغطة وحدة في الوضعين فوري ومحلي:
+  //   • في أسطر دفع مضافة → handleConfirm (بيعرض خطأ مبلغ ناقص/زائد أو مرجع
+  //     ناقص لو الفاتورة مش جاهزة)
+  //   • ما في أسطر بس في حساب محدد → تحميل كامل المبلغ على الحساب
+  //   • ما في أسطر ولا حساب → تحصيل كامل المبلغ كاش وإقفال مباشرة (بدون ما
+  //     الكاشير يضطر يضيف سطر دفع يدوي)
+  useEffect(() => {
+    confirmHotkeyRef.current = () => {
+      if (confirming) return;
+      if (lines.length > 0) {
+        handleConfirm();
+        return;
+      }
+      if (selectedEntity) {
+        handleEntityConfirm();
+        return;
+      }
+      emit(
+        total > 0
+          ? [{ method: PaymentMethod.CASH, amount: roundMoney(total), reference: undefined }]
+          : [],
+      );
+    };
+  });
 
-            {showAccountFields && (
-              <div className="space-y-3 border-b border-white/5 pb-5">
+  const accountSection = showAccountFields && (
+    <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-white">بيانات الزبون والحساب</h4>
                   {(setAccountType || setShowSearchModal) && (
@@ -365,6 +499,9 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                       <div className="absolute left-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-emerald-500/20 text-emerald-500 px-1 py-0.5 rounded text-[7px] font-bold">
                         <Tag size={7} />
                         {entityTypeLabel}
+                        {accountType === "EMPLOYEE" && selectedEntity.employeeId && (
+                          <span>#{selectedEntity.employeeId}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -384,6 +521,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                       onChange={(e) => {
                         setAccountType(e.target.value as AccountType);
                         setAccountNumber?.("");
+                        setAccountSearchText("");
                         setSelectedEntity(null);
                         setEntityResults([]);
                         setShowAccountSuggestions(false);
@@ -398,9 +536,9 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                       <input
                         ref={accountSearchInputRef}
                         type="text"
-                        value={accountNumber ?? ""}
+                        value={accountSearchText}
                         onChange={(e) => {
-                          setAccountNumber?.(e.target.value);
+                          setAccountSearchText(e.target.value);
                           setSelectedEntity(null);
                           setShowAccountSuggestions(true);
                         }}
@@ -412,7 +550,11 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                           }
                           if (event.key === "Escape") setShowAccountSuggestions(false);
                         }}
-                        placeholder="ابحث بالاسم/الجوال..."
+                        placeholder={
+                          accountType === "EMPLOYEE"
+                            ? "ابحث بالرقم الوظيفي أو الاسم..."
+                            : "ابحث بالاسم/الجوال..."
+                        }
                         className="w-full p-2 pl-7 bg-slate-800 border border-white/5 rounded-lg outline-none focus:ring-1 focus:ring-red-600 font-black text-[10px] text-white"
                       />
                       <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -456,7 +598,15 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                                       <div className="min-w-0">
                                         <p className="text-[10px] font-black text-white truncate">{entity.name}</p>
                                         <p className="text-[8px] font-bold text-slate-500 flex items-center gap-1">
-                                          <Phone size={7} /> {entity.phone || "—"}
+                                          {accountType === "EMPLOYEE" && entity.employeeId ? (
+                                            <>
+                                              <Tag size={7} /> رقم وظيفي: {entity.employeeId}
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Phone size={7} /> {entity.phone || "—"}
+                                            </>
+                                          )}
                                         </p>
                                       </div>
                                     </div>
@@ -468,7 +618,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                               </div>
                             )}
 
-                            {!isSearching && accountNumber && entityResults.length === 0 && (
+                            {!isSearching && accountSearchText && entityResults.length === 0 && (
                               <div className="flex flex-col items-center justify-center py-4 text-slate-500">
                                 <p className="text-[9px] font-black">لا توجد نتائج</p>
                               </div>
@@ -482,21 +632,28 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
 
                 {selectedEntity && (
                   <div className="bg-slate-800/50 border border-white/5 rounded-lg p-2 flex items-center justify-between">
-                    <span className="text-[9px] font-black text-emerald-500">✓ {entityTypeLabel} محدد #{selectedEntity.id}</span>
+                    <span className="text-[9px] font-black text-emerald-500">
+                      ✓ {entityTypeLabel} محدد #
+                      {accountType === "EMPLOYEE" && selectedEntity.employeeId
+                        ? selectedEntity.employeeId
+                        : selectedEntity.id}
+                    </span>
                     <span className={`text-[10px] font-mono font-black ${selectedEntity.balance > 0 ? "text-red-500" : "text-emerald-500"}`}>
                       رصيد: {selectedEntity.balance.toFixed(2)} ₪
                     </span>
                   </div>
                 )}
-              </div>
-            )}
+    </div>
+  );
 
+  const totalSection = (
             <div className="text-center">
               <p className="text-slate-500 text-xs font-bold">المبلغ المطلوب تحصيله</p>
               <p className="text-3xl font-black text-white mt-1">{total.toFixed(2)} ₪</p>
             </div>
+  );
 
-            {/* شريط المخصّص / المتبقّي */}
+  const allocationSection = (
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-slate-800/60 border border-white/5 rounded-xl p-2.5 text-center">
                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">المخصّص</p>
@@ -511,11 +668,12 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                 </p>
               </div>
             </div>
+  );
 
-            {/* أزرار إضافة طريقة دفع */}
+  const addMethodsSection = (
             <div className="space-y-2">
               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mr-1">أضف طريقة دفع</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div ref={methodsGridRef} className="grid grid-cols-3 gap-2">
                 {DIRECT_METHODS.map((method) => {
                   const meta = METHOD_META[method]!;
                   const Icon = meta.icon;
@@ -548,9 +706,9 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                 </button>
               )}
             </div>
+  );
 
-            {/* أسطر الدفع */}
-            {lines.length > 0 && (
+  const linesSection = lines.length > 0 && (
               <div className="space-y-2">
                 {lines.map((line) => {
                   const meta = METHOD_META[line.method]!;
@@ -596,9 +754,9 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                   );
                 })}
               </div>
-            )}
+  );
 
-            {selectedEntity && (
+  const entityConfirmSection = selectedEntity && (
               <button
                 onClick={handleEntityConfirm}
                 disabled={confirming}
@@ -607,12 +765,13 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                 {entityTypeLabel === "عميل" ? <Users size={14} /> : entityTypeLabel === "مورد" ? <Truck size={14} /> : <UserCheck size={14} />}
                 تحميل كامل المبلغ على حساب {entityTypeLabel}
               </button>
-            )}
+  );
 
-            {error && (
+  const errorSection = error && (
               <p className="text-red-400 text-xs font-bold text-center">{error}</p>
-            )}
+  );
 
+  const actionsSection = (
             <div className="flex flex-col gap-2">
               <button
                 onClick={handleConfirm}
@@ -628,6 +787,59 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                 إلغاء
               </button>
             </div>
+  );
+
+  return (
+    <AnimatePresence>
+      {show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" dir="rtl">
+          <motion.div
+            ref={modalRef}
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className={`bg-slate-900 w-full rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden p-7 [&_button:focus]:outline-none [&_button:focus]:ring-2 [&_button:focus]:ring-red-500 [&_button:focus]:ring-offset-2 [&_button:focus]:ring-offset-slate-900 ${
+              showAccountFields
+                ? "max-w-[64rem] max-h-[95vh]"
+                : "max-w-md space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            }`}
+          >
+            <div className={`flex items-center justify-between ${showAccountFields ? "mb-6" : ""}`}>
+              <h3 className="text-lg font-black text-white">إتمام الفاتورة</h3>
+              <button
+                onClick={handleClose}
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {showAccountFields ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 items-start">
+                <div className="space-y-5 md:border-l md:border-white/10 md:pl-8">
+                  {accountSection}
+                  {totalSection}
+                  {allocationSection}
+                </div>
+                <div className="space-y-5">
+                  {addMethodsSection}
+                  {linesSection}
+                  {entityConfirmSection}
+                  {errorSection}
+                  {actionsSection}
+                </div>
+              </div>
+            ) : (
+              <>
+                {totalSection}
+                {allocationSection}
+                {addMethodsSection}
+                {linesSection}
+                {entityConfirmSection}
+                {errorSection}
+                {actionsSection}
+              </>
+            )}
           </motion.div>
         </div>
       )}

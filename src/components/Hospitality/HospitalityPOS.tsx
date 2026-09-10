@@ -872,9 +872,14 @@ export const HospitalityPOS: React.FC = () => {
       setEditingApiOrderId(null);
 
       // Call print-invoice API
+      // pos_register_id: هوية محطة الكاشير الفعلية - لازم نرسلها صراحة وإلا
+      // السيرفر بيخمّن أي طابعة كاشير فعّالة بالفرع (سبب طباعة فاتورة محطة
+      // على طابعة محطة تانية لما يصير أكتر من كاشير واحد بنفس الفرع).
       setIsPrinting(true);
       try {
-        await api.post(`/orders/${result.id}/print-invoice`);
+        await api.post(`/orders/${result.id}/print-invoice`, {
+          pos_register_id: posInfo?.id ?? null,
+        });
         toast.success("تم إرسال الفاتورة إلى الطابعة بنجاح 🖨️", `الطاولة #${manualTable}`);
       } catch (printErr: any) {
         const msg = printErr.response?.data?.message || "فشل إرسال الفاتورة للطابعة";

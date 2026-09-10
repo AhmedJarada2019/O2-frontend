@@ -28,6 +28,7 @@ import { ThemeProvider } from "./theme";
 import { CrmRouteGuard } from "./features/crm";
 import { CallCenterLayout } from "./components/call-center/Layout";
 import CallCenterGuard from "./components/call-center/CallCenterGuard";
+import PosRouteGuard from "./components/POS/PosRouteGuard";
 
 // ── صفحات/مكونات ثقيلة — تُحمَّل فقط عند زيارة الراوت الخاص فيها (code-splitting) ──
 const FinancePortal = lazy(() => import("./components/administration/FinancePortal").then(m => ({ default: m.FinancePortal })));
@@ -402,13 +403,15 @@ function AppRoutes() {
             RoleGuard يفحص الدور → POSLayout يعرض السايد بار
         */}
         <Route element={<RoleGuard allowedRoles={POS_ROLES} />}>
-          <Route element={<POSLayout />}>
-            <Route path="/pos">
-              <Route index element={<POS onViewTables={() => {}} />} />
-              <Route path="orders" element={<OrdersView />} />
-              <Route path="tables" element={<TablesView />} />
-              <Route path="deferred" element={<DeferredTables />} />
-              <Route path="shift" element={<ShiftView />} />
+          <Route element={<PosRouteGuard />}>
+            <Route element={<POSLayout />}>
+              <Route path="/pos">
+                <Route index element={<POS onViewTables={() => {}} />} />
+                <Route path="orders" element={<OrdersView />} />
+                <Route path="tables" element={<TablesView />} />
+                <Route path="deferred" element={<DeferredTables />} />
+                <Route path="shift" element={<ShiftView />} />
+              </Route>
             </Route>
           </Route>
         </Route>

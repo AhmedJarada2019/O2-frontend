@@ -50,6 +50,8 @@ export interface SubmitOrderPayload {
   branch_id: number;
   cashier_id?: number;
   order_type: "dine_in" | "takeaway" | "delivery";
+  /** طلب «فوري» (بيع كاشير سريع) — يُخزّن مستقلاً عن order_type */
+  is_fawri?: boolean;
   table_number?: string;
   customer_name?: string;
   customer_phone?: string;
@@ -371,8 +373,15 @@ export const useCart = () => {
               customer_phone: payload.customer_phone,
               note: payload.note,
             });
-          } catch {
-            // confirmed orders may still proceed — invoice creation recalculates totals
+          } catch (error) {
+            // كانت هاي بتبتلع الخطأ بصمت — الفاتورة كانت تتقفل وتتحصّل بالمجموع
+            // القديم (بدون الخصم/الملاحظة اللي عدّلها الكاشير قبل الإغلاق مباشرة)
+            // لأن إنشاء الفاتورة بعدها بيعيد حساب السعر من discount_value المخزّن
+            // بقاعدة البيانات، مش من القيمة الظاهرة عالشاشة. لازم نوقف هون ونبلّغ
+            // الكاشير بدل ما نكمل تحصيل بمبلغ غلط.
+            throw new Error(
+              getApiErrorMessage(error, "فشلت مزامنة الخصم/الملاحظة قبل إغلاق الفاتورة — حاول مرة ثانية"),
+            );
           }
         }
 

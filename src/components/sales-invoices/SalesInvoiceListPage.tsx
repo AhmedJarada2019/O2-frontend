@@ -416,6 +416,10 @@ export const SalesInvoiceListPage = ({ onOpenForm }: Props) => {
   };
 
   const handleSyncAllPos = async () => {
+    if (!user?.branch_id) {
+      toast.error("تعذّر التحديد", "لا يوجد فرع مرتبط بحسابك — لا يمكن تنفيذ المزامنة");
+      return;
+    }
     openConfirm({
       title: "مزامنة فواتير نقطة البيع",
       message: "هل تريد مزامنة جميع فواتير نقطة البيع غير المزامنة؟",
@@ -423,7 +427,7 @@ export const SalesInvoiceListPage = ({ onOpenForm }: Props) => {
       onConfirm: async () => {
         setConfirmLoading(true);
         try {
-          const result = await salesInvoiceService.syncPosEndOfDay({ branch_id: 0 });
+          const result = await salesInvoiceService.syncPosEndOfDay({ branch_id: user.branch_id! });
           const synced = (result as any)?.synced || 0;
           closeConfirm();
           if (synced > 0) {

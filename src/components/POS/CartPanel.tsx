@@ -114,6 +114,9 @@ interface CartPanelProps {
   posInfo?: { id?: number; code?: string; name?: string; branch_id?: number } | null;
   clearCart?: () => void;
   onRequestClose?: (kind: "takeaway" | "dine_in") => void;
+  /** true إذا في بوباب/مودال مفتوح فوق الشاشة (دفع، بحث، إلخ) — يعطّل اختصارات
+   *  الكيبورد وتنقّل الأسهم بالسلة حتى ما تتحرك الفاتورة اللي وراء البوباب. */
+  isModalOpen?: boolean;
 }
 
 // أعمدة جدول السلة — Grid ثابت مشترك بين الهيدر وصفوف الأصناف (بدل <table>)
@@ -177,6 +180,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   posInfo,
   clearCart,
   onRequestClose,
+  isModalOpen = false,
 }) => {
   const isDineIn = cartOrderType === OrderType.DINE_IN;
 
@@ -184,10 +188,16 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const [inlineSearch, setInlineSearch] = useState("");
   const [inlineQty, setInlineQty] = useState("1");
   const [inlineTotal, setInlineTotal] = useState("");
+  // buffer لنص خانة «الإجمالي» لكل سطر أثناء الكتابة. بدونه الخانة controlled
+  // بقيمة price×quantity المعاد حسابها كل ضغطة زر، فلما الكاشير يكتب رقم من
+  // كذا خانة لصنف وزن (السعر ما بيقسم بالظبط) الخانة بتقفز لقيمة مقرّبة وبيضيع
+  // الرقم. نعرض الـ buffer أثناء focus، وننضّفه عند blur فترجع للقيمة المحسوبة.
+  const [editingTotal, setEditingTotal] = useState<{ [id: string]: string }>({});
   const [selectedSearchItem, setSelectedSearchItem] =
     useState<SearchableItem | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const roundMoney = (value: number) =>
     Math.round((Number(value) || 0) * 100) / 100;
@@ -199,6 +209,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // في حال في مودال/بوباب مفتوح (دفع، بحث..) — نعطّل اختصارات السلة
+      // بالكامل حتى ما تتحرك الفاتورة اللي وراء البوباب بالغلط.
+      if (isModalOpen) return;
+
       // Don't trigger when typing in an input
       if (
         e.target instanceof HTMLInputElement ||
@@ -247,7 +261,13 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
       const doCloseTakeaway = async () => {
         if (currentCart.length === 0) return;
-        // "فوري" = دفع + إغلاق ثم فاتورة منفصلة لكل قسم، كلها على طابعة الكاشير.
+        // الإغلاق يمرّ عبر PaymentMethodModal حتى يختار الكاشير طريقة الدفع فعلياً
+        // (كاش/بطاقة/محفظة) بدل الافتراضي الثابت "كاش".
+        if (onRequestClose) {
+          onRequestClose("takeaway");
+          return;
+        }
+        // fallback فقط لو ما في onRequestClose (نادر) — "فوري" = دفع + إغلاق ثم طباعة.
         const result = await submitOrder(
           OrderStatus.DELIVERED,
           paymentMethod,
@@ -268,6 +288,12 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           setPosError("يرجى إدخال رقم الطاولة أولاً");
           return;
         }
+        // الإغلاق يمرّ عبر PaymentMethodModal (يجمع اسم الزبون + طريقة الدفع).
+        if (onRequestClose) {
+          onRequestClose("dine_in");
+          return;
+        }
+        // fallback فقط لو ما في onRequestClose (نادر).
         if (
           !customerName ||
           (customerName === "صندوق مبيعات" && paymentMethod !== PaymentMethod.CASH)
@@ -275,7 +301,6 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           setShowCustomerModal(true);
           return;
         }
-        // "محلي" = دفع + إغلاق ثم فاتورة الكاشير المدمجة على طابعة الكاشير.
         const result = await submitOrder(
           OrderStatus.DELIVERED,
           paymentMethod,
@@ -390,7 +415,186 @@ export const CartPanel: React.FC<CartPanelProps> = ({
     posInfo,
     setPosError,
     setShowCustomerModal,
+    isModalOpen,
   ]);
+
+  // ── تشغيل زر "تنفيذ" الأساسي حسب وضع الفاتورة (نفس منطق الزر الأحمر/الأخضر) ──
+  const runPrimaryExecute = () => {
+    if (currentCart.length === 0 || isSubmitting) return;
+    if (isHospitality) {
+      if (cartOrderType === OrderType.DINE_IN && !manualTable) {
+        setPosError("يرجى إدخال رقم الطاولة أولاً");
+        return;
+      }
+      submitOrder(OrderStatus.CONFIRMED, PaymentMethod.CASH, calculatedDiscount, {
+        name: customerName,
+        phone: customerPhone,
+        note: invoiceNote,
+      });
+      return;
+    }
+    if (cartOrderType === OrderType.DINE_IN && !manualTable) {
+      setPosError("يرجى إدخال رقم الطاولة أولاً");
+      return;
+    }
+    onRequestClose?.(
+      cartOrderType === OrderType.TAKEAWAY ? "takeaway" : "dine_in",
+    );
+  };
+
+  // ── التحكم بكامل الفاتورة بالأسهم (صفوف + ملاحظة + خصم + أزرار) ────────────
+  //   "محطات" الفاتورة بالترتيب: صفوف الأصناف ← الملاحظة ← قيمة الخصم ←
+  //   زر نوع الخصم (₪/%) ← أزرار الإجراءات (حفظ / تنفيذ / طباعة). كل محطة
+  //   غير الصفوف معلّمة بـ data-inv-stop.
+  //
+  //   • على صف صنف: سهم فوق/تحت = زيادة/إنقاص الكمية لنفس الصنف (التركيز ما
+  //     بيتحرك) ، سهم يمين/يسار = تنقّل بين المحطات (RTL: يسار = التالي) ،
+  //     Enter = تنفيذ.
+  //   • على الملاحظة/الخصم (حقول نص): سهم فوق/تحت = تنقّل بين المحطات ، سهم
+  //     يمين/يسار = تبقى لتحريك مؤشر النص.
+  //   • على زر (نوع الخصم / إجراء): كل الأسهم = تنقّل ، Enter = ضغط الزر.
+  //
+  //   يعمل بطور الالتقاط (capture) ويوقف الانتشار حتى ما يتعارض مع تنقّل
+  //   شبكة الأصناف (MenuGrid) اللي بيسمع على نفس النافذة.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isModalOpen) return;
+      const key = e.key;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"].includes(key)) {
+        return;
+      }
+
+      const ae = document.activeElement as HTMLElement | null;
+      if (!ae || !rootRef.current?.contains(ae)) return;
+
+      const rowEl = ae.closest?.("[data-cart-row]") as HTMLElement | null;
+      const isExtraStop = ae.matches?.("[data-inv-stop]") ?? false;
+
+      // حقل داخلي جوّا صف (اسم/كمية/إجمالي) — اترك المفاتيح طبيعية تماماً
+      if (rowEl && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
+      // مش واقفين على أي محطة معروفة — لا تتدخّل (خلّي MenuGrid يشتغل)
+      if (!rowEl && !isExtraStop) return;
+
+      const isTextStop = ae.tagName === "INPUT" || ae.tagName === "TEXTAREA";
+      // على محطة نصية: يمين/يسار تبقى لتحريك مؤشر النص
+      if (isTextStop && (key === "ArrowLeft" || key === "ArrowRight")) return;
+
+      // Enter
+      if (key === "Enter") {
+        if (rowEl) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          runPrimaryExecute();
+        } else if (ae instanceof HTMLButtonElement) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          ae.click();
+        }
+        return;
+      }
+
+      // على صف: فوق/تحت = تعديل الكمية لنفس الصنف
+      if (rowEl && (key === "ArrowUp" || key === "ArrowDown")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const idx = Number(rowEl.getAttribute("data-cart-row"));
+        const item = currentCart[idx];
+        if (item && !item.is_printed_direct) {
+          const nextQty = item.quantity + (key === "ArrowUp" ? 1 : -1);
+          if (nextQty >= 1) {
+            updateCartItem(item.uniqueId, { quantity: nextQty });
+          }
+        }
+        return;
+      }
+
+      // غير هيك: تنقّل بين محطات الفاتورة
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const stops = [
+        ...Array.from(
+          rootRef.current.querySelectorAll<HTMLElement>("[data-cart-row]"),
+        ),
+        ...Array.from(
+          rootRef.current.querySelectorAll<HTMLElement>("[data-inv-stop]"),
+        ),
+      ].filter(
+        (el) => el.offsetParent !== null && !(el as HTMLButtonElement).disabled,
+      );
+      if (stops.length === 0) return;
+
+      const cur = rowEl ?? ae;
+      const curIdx = stops.indexOf(cur);
+      const forward = key === "ArrowLeft" || key === "ArrowDown"; // RTL
+      const nextIdx =
+        curIdx === -1
+          ? 0
+          : Math.min(Math.max(curIdx + (forward ? 1 : -1), 0), stops.length - 1);
+      const target = stops[nextIdx];
+      if (target) {
+        target.focus();
+        target.scrollIntoView?.({ block: "nearest" });
+        if (target.tagName === "INPUT") {
+          (target as HTMLInputElement).select?.();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [
+    currentCart,
+    updateCartItem,
+    isHospitality,
+    cartOrderType,
+    manualTable,
+    isSubmitting,
+    calculatedDiscount,
+    customerName,
+    customerPhone,
+    invoiceNote,
+    submitOrder,
+    onRequestClose,
+    setPosError,
+    isModalOpen,
+  ]);
+
+  // ── تحديد افتراضي على الفاتورة أول ما يفتح الكاشير ───────────────────────────
+  //   المطلوب: أول ما تفتح شاشة الكاشير يكون التحديد على الفاتورة نفسها حتى
+  //   يشتغل تنقّل الأسهم (فوق/تحت = كمية الصنف ، يمين/يسار = تنقّل بين محطات
+  //   الملاحظة/الخصم/الأزرار) و Enter (يفتح بوباب الدفع) فوراً بدون ماوس.
+  //
+  //   • فيه أصناف بالفاتورة → نحط التحديد على أول صف.
+  //   • الفاتورة فارغة → نركّز حقل "ابحث عن صنف" حتى يبلّش يكتب/يسكان فوراً.
+  //
+  //   نسحب التركيز مرة وحدة لأول صف (didFocusRowRef) — بعدها ما بنتدخّل نهائياً
+  //   حتى ما نزعج الكاشير وهو بيضيف أصناف متتالية. وما بنسحب التركيز إذا الكاشير
+  //   أصلاً واقف على حقل/زر تاني (غير حقل البحث) أو في بوباب مفتوح.
+  const inlineSearchInputRef = useRef<HTMLInputElement>(null);
+  const didInitialFocusRef = useRef(false);
+  const didFocusRowRef = useRef(false);
+  useEffect(() => {
+    if (isModalOpen || didFocusRowRef.current) return;
+
+    const ae = document.activeElement as HTMLElement | null;
+    const focusIdle = !ae || ae === document.body || ae === rootRef.current;
+
+    // فيه أصناف → التحديد على أول صف بالفاتورة (لمرة وحدة)
+    const firstRow = rootRef.current?.querySelector<HTMLElement>("[data-cart-row]");
+    if (firstRow && (focusIdle || ae === inlineSearchInputRef.current)) {
+      firstRow.focus();
+      firstRow.scrollIntoView?.({ block: "nearest" });
+      didFocusRowRef.current = true;
+      didInitialFocusRef.current = true;
+      return;
+    }
+
+    // فاتورة فارغة → نركّز حقل البحث عن صنف (مرة وحدة لكل فتح)
+    if (!didInitialFocusRef.current && focusIdle && inlineSearchInputRef.current) {
+      inlineSearchInputRef.current.focus();
+      didInitialFocusRef.current = true;
+    }
+  }, [allItems.length, currentCart.length, isModalOpen]);
 
   const filteredSearchItems = useMemo(() => {
     if (!inlineSearch || inlineSearch.length < 1) return [];
@@ -426,7 +630,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
   const handleInlineAdd = () => {
     if (!selectedSearchItem || !addToCart) return;
-    const qty = parseFloat(inlineQty) || 1;
+    // الكمية decimal(10,2) على الباك اند — نقرّبها لخانتين حتى إجمالي الواجهة
+    // يطابق حساب الباك اند وما يطلع فرق قروش وقت الإغلاق.
+    const qty = roundMoney(parseFloat(inlineQty) || 1);
     addToCart(selectedSearchItem, {
       quantity: qty,
       price: selectedSearchItem.price,
@@ -456,6 +662,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
   return (
     <div
+      ref={rootRef}
       className={`w-full lg:w-[450px] xl:w-[500px] bg-slate-900 rounded-[1.5rem] sm:rounded-[2rem] border border-white/10 flex flex-col shadow-2xl overflow-hidden h-auto lg:h-full shrink-0 ${isCartOpen ? "fixed inset-0 z-50 lg:relative lg:z-0" : "hidden lg:flex"}`}
     >
       {/* 1. Header & Table Info */}
@@ -691,6 +898,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             <div className="px-1 py-1.5 sm:px-2 relative" ref={searchRef}>
               <div className="relative flex items-center gap-1">
                 <input
+                  ref={inlineSearchInputRef}
                   type="text"
                   value={inlineSearch}
                   onChange={handleInlineSearchChange}
@@ -788,7 +996,12 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           {currentCart.map((item, index) => (
             <div
               key={item.uniqueId}
-              className={`${isDineIn ? CART_GRID_COLS : CART_GRID_COLS_TAKEAWAY} group hover:bg-white/5 transition-colors items-center`}
+              data-cart-row={index}
+              tabIndex={0}
+              onFocus={() => {
+                lastFocusedItemRef.current = item.uniqueId;
+              }}
+              className={`${isDineIn ? CART_GRID_COLS : CART_GRID_COLS_TAKEAWAY} group hover:bg-white/5 transition-colors items-center outline-none focus:bg-red-600/10 focus:ring-2 focus:ring-inset focus:ring-red-500`}
             >
               <div className="px-1 py-1.5 sm:px-2 sm:py-2 text-[8px] sm:text-[10px] font-black text-slate-600">
                 {index + 1}
@@ -898,14 +1111,30 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               <div className="px-1 py-1.5 sm:px-2 sm:py-2">
                 <input
                   type="text"
-                  value={Math.round(item.price * item.quantity * 100) / 100}
+                  inputMode="decimal"
+                  value={
+                    editingTotal[item.uniqueId] !== undefined
+                      ? editingTotal[item.uniqueId]
+                      : Math.round(item.price * item.quantity * 100) / 100
+                  }
                   disabled={!!item.is_printed_direct}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setEditingTotal((prev) => ({
+                      ...prev,
+                      [item.uniqueId]: e.target.value,
+                    }));
                     handleTotalChange(
                       item.uniqueId,
                       e.target.value,
                       item.price,
-                    )
+                    );
+                  }}
+                  onBlur={() =>
+                    setEditingTotal((prev) => {
+                      const next = { ...prev };
+                      delete next[item.uniqueId];
+                      return next;
+                    })
                   }
                   className="w-full bg-transparent text-left text-[11px] sm:text-xs font-black text-red-500 outline-none"
                 />
@@ -968,6 +1197,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               </span>
             </div>
             <textarea
+              data-inv-stop="note"
               value={invoiceNote}
               onChange={(e) => setInvoiceNote(e.target.value)}
               placeholder="..."
@@ -984,6 +1214,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             </div>
             <div className="flex items-center gap-1">
               <input
+  data-inv-stop="discount"
   type="text"
   value={editingDiscount}
   onChange={(e) => {
@@ -997,6 +1228,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   className="flex-1 min-w-0 bg-transparent text-center text-[10px] sm:text-xs font-black text-white outline-none"
 />
               <button
+                data-inv-stop="discount-type"
                 onClick={() =>
                   setDiscountType(
                     discountType === "AMOUNT" ? "PERCENT" : "AMOUNT",
@@ -1030,6 +1262,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 );
               }}
               disabled={currentCart.length === 0 || isSubmitting}
+              data-inv-stop="action"
               className="py-3 sm:py-4 bg-slate-800 text-white rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 hover:bg-slate-700 shadow-lg disabled:opacity-30 transition-all active:scale-95"
             >
               {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
@@ -1053,6 +1286,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 );
               }}
               disabled={currentCart.length === 0 || isSubmitting}
+              data-inv-stop="action"
               className="py-3 sm:py-4 bg-red-600 text-white rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 hover:bg-red-700 shadow-xl shadow-red-900/20 disabled:opacity-30 transition-all active:scale-95"
             >
               {isSubmitting ? (
@@ -1084,12 +1318,14 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 );
               }}
               disabled={currentCart.length === 0}
+              data-inv-stop="action"
               className="py-2.5 sm:py-3 bg-slate-800 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1.5 hover:bg-slate-700 disabled:opacity-30 transition-all active:scale-95"
             >
               <Save size={14} />
               حفظ
             </button>
             <button
+              data-inv-stop="action"
               onClick={async () => {
                 if (onRequestClose) {
                   onRequestClose("takeaway");
@@ -1145,6 +1381,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 );
               }}
               disabled={currentCart.length === 0}
+              data-inv-stop="action"
               className="py-2.5 sm:py-3 bg-slate-800 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1.5 hover:bg-slate-700 disabled:opacity-30 transition-all active:scale-95"
             >
               <Save size={14} />
@@ -1183,6 +1420,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                 );
               }}
               disabled={currentCart.length === 0 || isSubmitting}
+              data-inv-stop="action"
               className="py-2.5 sm:py-3 bg-emerald-600 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1.5 hover:bg-emerald-700 shadow-xl shadow-emerald-900/20 disabled:opacity-30 transition-all active:scale-95"
             >
               {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
@@ -1191,6 +1429,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             <button
               onClick={() => handlePrintInvoice?.(editingOrderId, "departments")}
               disabled={currentCart.length === 0 || isPrinting}
+              data-inv-stop="action"
               className="py-2.5 sm:py-3 bg-blue-600 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1.5 hover:bg-blue-700 shadow-xl shadow-blue-900/20 disabled:opacity-30 transition-all active:scale-95"
             >
               {isPrinting ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
