@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<title>إعدادات الخادم</title>
+<style>
+  body { font-family: Tahoma, Arial, sans-serif; padding: 20px; background: #f5f5f5; margin: 0; }
+  label { display: block; margin-bottom: 8px; font-weight: bold; }
+  input { width: 100%; box-sizing: border-box; padding: 8px; font-size: 14px; margin-bottom: 16px; }
+  button { padding: 8px 20px; font-size: 14px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <label for="url">رابط سيرفر نظام الكاشير</label>
+  <input id="url" type="text" placeholder="http://192.168.2.250:8095/pos" />
+  <button id="save">حفظ وإعادة التحميل</button>
+  <script>
+    window.settingsAPI.onCurrentUrl((url) => {
+      document.getElementById('url').value = url;
+    });
+    document.getElementById('save').addEventListener('click', () => {
+      const url = document.getElementById('url').value.trim();
+      if (url) window.settingsAPI.save(url);
+      window.close();
+    });
+  </script>
+</body>
+</html>
