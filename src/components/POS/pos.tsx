@@ -1500,6 +1500,7 @@ const handlePrintInvoice = async (
             setSearchQuery={setSearchQuery}
             clearCart={clearActiveCart}
             isModalOpen={isModalOpen}
+            posInfo={posInfo}
           />
         )}
 
