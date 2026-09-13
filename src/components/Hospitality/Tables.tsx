@@ -1307,16 +1307,23 @@ export const HospitalityTables: React.FC<{
                         );
                         return (
                           <button
-                            onClick={() => {
-                              if (canClear) {
-                                updateTableStatus(
-                                  activePopupTable.id,
-                                  TableStatus.AVAILABLE,
-                                );
-                              } else {
+                            onClick={async () => {
+                              if (!canClear) {
                                 toast.error("لا يمكن تفريغ الطاولة، يوجد طلب نشط عليها");
                                 return;
                               }
+                              const tableId = activePopupTable.id;
+                              await updateTableStatus(tableId, TableStatus.AVAILABLE, {
+                                currentOrderId: undefined,
+                                seatedAt: undefined,
+                                guestCount: undefined,
+                              });
+                              if (selectedTable?.id === tableId) {
+                                setSelectedTable(null);
+                              }
+                              setActiveApiOrder(null);
+                              setAllTableOrders([]);
+                              setShowPopup(null);
                             }}
                             disabled={!canClear}
                             className={`flex flex-col items-center gap-1 sm:gap-2 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 transition-all ${

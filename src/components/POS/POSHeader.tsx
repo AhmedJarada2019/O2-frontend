@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Search, RefreshCw, Loader2, Archive, UserRound } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Archive, Store } from 'lucide-react';
 import { useApp } from '../../../store';
-import { useAuth } from '../../auth';
 import api from '../../api/axios';
 import { toast } from '../shared/Toast';
 
@@ -16,23 +15,21 @@ interface POSHeaderProps {
   /** بوباب مفتوح فوق الشاشة — يعطّل اختصار فتح الصندوق (F9) حتى ما يفتح
    *  بالغلط أثناء التركيز على بوباب تاني. */
   isModalOpen?: boolean;
-  // ‼️ هالبروب انمسح 3 مرات سابقًا (2026-09-09/10/12) بنسخ فوقه من نسخة
-  // محلية قديمة عند مطور تاني. لو بتلمس هالملف، تأكد إنه posInfo يضل موجود.
-  posInfo?: { code?: string; name?: string } | null;
+  posInfo?: { code?: string; name?: string; branch_id?: number } | null;
 }
 
 export const POSHeader: React.FC<POSHeaderProps> = ({
   editingOrderId, isHospitality, activePOSMode, setActivePOSMode,
   searchQuery, setSearchQuery, clearCart, isModalOpen = false, posInfo,
 }) => {
-  const { currentShift, currentUser, rollover, userRole } = useApp();
-  const { user } = useAuth();
+  const { currentShift, rollover, userRole, branches } = useApp();
   const [rolloverLoading, setRolloverLoading] = useState(false);
   const [showRolloverConfirm, setShowRolloverConfirm] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
 
   const canRollover = userRole === 'super-admin' || userRole === 'admin' || userRole === 'ADMIN';
-  const cashierName = user?.name || currentUser?.name || 'غير معروف';
+  const branchName = branches?.find((b) => b.id === posInfo?.branch_id)?.name;
+  const posName = posInfo?.name || branchName;
 
   const handleOpenDrawer = async () => {
     setDrawerLoading(true);
@@ -81,21 +78,18 @@ export const POSHeader: React.FC<POSHeaderProps> = ({
           >
             {editingOrderId ? `تعديل طلب #${editingOrderId.slice(-4)}` : 'فاتورة جديدة'}
           </h2>
-          <div
-            className="flex min-w-0 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-emerald-200"
-            title={posInfo?.name ? `الكاشير: ${cashierName} - ${posInfo.name}` : `الكاشير: ${cashierName}`}
-          >
-            <UserRound size={13} className="shrink-0" />
-            <span className="text-[10px] font-black whitespace-nowrap">الكاشير:</span>
-            <span className="max-w-28 truncate text-[10px] font-black sm:max-w-40">
-              {cashierName}
-            </span>
-            {posInfo?.code && (
-              <span className="text-[10px] font-black text-emerald-400 whitespace-nowrap">
-                ({posInfo.code})
+          {posName && (
+            <div
+              className="flex min-w-0 items-center gap-2 rounded-lg border-2 border-amber-500 bg-amber-500 px-3 py-1.5 shadow-lg shadow-amber-900/30"
+              title={`نقطة البيع: ${posName}`}
+            >
+              <Store size={16} className="shrink-0 text-slate-950" />
+              <span className="text-xs font-black whitespace-nowrap text-slate-950">نقطة البيع:</span>
+              <span className="max-w-40 truncate text-sm font-black text-slate-950 sm:max-w-56">
+                {posName}
               </span>
-            )}
-          </div>
+            </div>
+          )}
           {editingOrderId && (
             <button onClick={clearCart} className="text-[10px] font-black text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-xl transition-colors border border-red-500/20">إلغاء</button>
           )}
