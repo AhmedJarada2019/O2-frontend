@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../../../../store";
 import type { BankAccount, Customer, Supplier } from "../../../../types";
-import { CustomerType } from "../../../../types";
+import { CustomerType, FinancialTransactionType } from "../../../../types";
 
 type ViewMode = "cards" | "table";
 
@@ -1134,6 +1134,21 @@ export const CashBankTab: React.FC<{ bankAccounts?: BankAccount[] }> = ({
     () => app.cashBoxes.reduce((sum, cashBox) => sum + cashBox.balance, 0),
     [app.cashBoxes],
   );
+  // مدفوعات الشهر الحالي (مصروفات + سحوبات) — كانت مرجّعة بدون تعريف إطلاقًا
+  const monthlyOutflows = useMemo(() => {
+    const now = new Date();
+    return app.financialTransactions
+      .filter((tx) => {
+        const d = new Date(tx.timestamp);
+        return (
+          d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          (tx.type === FinancialTransactionType.EXPENSE ||
+            tx.type === FinancialTransactionType.WITHDRAWAL)
+        );
+      })
+      .reduce((sum, tx) => sum + tx.amount, 0);
+  }, [app.financialTransactions]);
 
   const openCreate = () => {
     setEditingBankAccount(null);

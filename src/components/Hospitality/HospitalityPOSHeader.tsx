@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Search, Receipt } from 'lucide-react';
+import { useAuth } from '../../auth';
 
 interface HospitalityPOSHeaderProps {
   editingOrderId: string | null;
@@ -12,6 +13,7 @@ interface HospitalityPOSHeaderProps {
   setSearchQuery: (q: string) => void;
   clearCart: () => void;
   onNewInvoice: () => void;
+  posInfo?: { code?: string; name?: string } | null;
 }
 
 export const HospitalityPOSHeader: React.FC<HospitalityPOSHeaderProps> = ({
@@ -20,12 +22,15 @@ export const HospitalityPOSHeader: React.FC<HospitalityPOSHeaderProps> = ({
   setSearchQuery,
   clearCart,
   onNewInvoice,
+  posInfo,
 }) => {
+  // useApp().currentUser غير موثوق هون - راجع نفس الملاحظة بـPOSHeader.tsx
+  const { user: authUser } = useAuth();
   return (
     <header className="mb-3 bg-slate-900 p-3 sm:p-4 rounded-2xl border border-white/5 shadow-xl">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Right Side - Title (Clickable) */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
           <h2
             onClick={onNewInvoice}
             className="text-base sm:text-lg font-black text-white tracking-tight whitespace-nowrap cursor-pointer hover:text-red-500 transition-colors flex items-center gap-2"
@@ -33,6 +38,20 @@ export const HospitalityPOSHeader: React.FC<HospitalityPOSHeaderProps> = ({
             <Receipt size={18} className="text-red-500" />
             {editingOrderId ? `تعديل فاتورة #${editingOrderId.slice(-4)}` : 'فاتورة جديدة'}
           </h2>
+
+          {/* ترحيب بالمستخدم ورقم المحطة — حتى ما تحتاج تطبع فاتورة لتتأكد
+              مين مسجّل دخول وعلى أي محطة. */}
+          {(authUser?.name || posInfo?.code) && (
+            <span
+              title={posInfo?.name || undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-[10px] font-black border border-white/5 whitespace-nowrap"
+            >
+              مرحبًا، {authUser?.name || '—'}
+              {posInfo?.code && (
+                <span className="text-emerald-400">({posInfo.code})</span>
+              )}
+            </span>
+          )}
         </div>
 
         {/* Left Side - Search */}

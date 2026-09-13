@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { OrderStatus, PaymentMethod, FinancialTransactionType } from '../../../types';
 import { toast } from '../shared/Toast';
+import { financialTransactionService } from '../../services/financialTransactionService';
 
 const sumBy = <T,>(items: T[], predicate: (item: T) => boolean, selector: (item: T) => number) =>
   items.filter(predicate).reduce((sum, item) => sum + selector(item), 0);
@@ -429,17 +430,30 @@ const AccountingPage = () => {
                   إضافة {transactionType === FinancialTransactionType.EXPENSE ? 'مصروف' : transactionType === FinancialTransactionType.WITHDRAWAL ? 'سحب' : 'إيداع'}
                 </h3>
                 
-                <form onSubmit={(e) => {
+                <form onSubmit={async (e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  addFinancialTransaction({
-                    shiftId: currentShift?.id || 's1',
-                    cashierId: currentUser?.id || 'e1',
-                    type: transactionType,
-                    amount: parseFloat(formData.get('amount') as string),
-                    reason: formData.get('reason') as string,
-                  });
-                  setShowTransactionModal(false);
+                  try {
+                    const saved = await financialTransactionService.create({
+                      type: transactionType,
+                      amount: parseFloat(formData.get('amount') as string),
+                      reason: formData.get('reason') as string,
+                    });
+                    addFinancialTransaction({
+                      id: String((saved as any).id),
+                      shiftId: String((saved as any).shift_id ?? currentShift?.id ?? ''),
+                      cashierId: String((saved as any).cashier_id ?? currentUser?.id ?? ''),
+                      type: transactionType,
+                      amount: parseFloat(formData.get('amount') as string),
+                      reason: formData.get('reason') as string,
+                      timestamp: new Date((saved as any).timestamp ?? Date.now()),
+                      status: 'APPROVED',
+                    });
+                    toast.success('تم الحفظ', 'تم تسجيل الحركة بنجاح');
+                    setShowTransactionModal(false);
+                  } catch (err: any) {
+                    toast.error('فشل الحفظ', err?.response?.data?.message || 'تعذّر تسجيل الحركة');
+                  }
                 }} className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">المبلغ</label>

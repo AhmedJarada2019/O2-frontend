@@ -1,3 +1,8 @@
+# O2 System — التوثيق
+
+- [`docs/FRONTEND.md`](docs/FRONTEND.md) — توثيق شامل للفرونت إند: البنية، التوجيه، إدارة الحالة، المصادقة، أهم المناطق الوظيفية، وديون تقنية.
+- توثيق الباك إند ونظام الطباعة موجود بريبو `o2-system-backend` تحت `docs/PROJECT.md` و`docs/PRINTING.md`.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

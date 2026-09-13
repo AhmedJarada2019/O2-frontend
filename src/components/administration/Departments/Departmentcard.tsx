@@ -5,7 +5,7 @@ import {
 import { OrderStatus } from '../../../../types';
 import type { Department, MenuItem, Order, Employee } from "../../../../types"
 import StatusBadge from "./ui/Statusbadge";
-import IconButton from './ui/IconButton';
+import IconButton from './ui/Iconbutton';
 
 interface DepartmentCardProps {
     dept: Department;

@@ -7,7 +7,7 @@ import type {
   FinancialTransaction,
   Customer,
   ActivityLog, Hall,
-  Supplier, BankAccount,
+  Supplier, BankAccount, CashBox,
   BlindDropSubmission, ReconciliationEntry, DayCloseState, BusinessDayState
 } from './types';
 import {
@@ -119,6 +119,11 @@ interface AppState {
   addBankAccount: (account: BankAccount) => void;
   updateBankAccount: (account: BankAccount) => void;
   deleteBankAccount: (id: string) => void;
+
+  // Cash Boxes (صندوق نقدية) — كان مستخدم بـCashBankTab بدون ما يكون معرّف
+  // أبدًا بالمتجر، فكان app.cashBoxes ترجع undefined ويطيح .reduce()
+  cashBoxes: CashBox[];
+  setCashBoxes: (boxes: CashBox[]) => void;
 
   // Financial Transactions
   financialTransactions: FinancialTransaction[];
@@ -549,6 +554,10 @@ export const useApp = create<AppState>()(
         set((state) => ({
           bankAccounts: state.bankAccounts.filter((a) => a.id !== id),
         })),
+
+      // Cash Boxes
+      cashBoxes: [],
+      setCashBoxes: (cashBoxes) => set({ cashBoxes }),
 
       // Financial Transactions
       financialTransactions: [],
