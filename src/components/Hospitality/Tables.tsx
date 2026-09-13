@@ -243,7 +243,7 @@ export const HospitalityTables: React.FC<{
   };
 
   const getStatusConfig = (status: TableStatus, isSelected: boolean = false) => {
-    if (isSelected && status !== TableStatus.OCCUPIED && status !== TableStatus.PENDING_CONFIRMATION) {
+    if (isSelected && status !== TableStatus.OCCUPIED && status !== TableStatus.PENDING_CONFIRMATION && status !== TableStatus.BILL_PRINTED) {
       return {
         color: "bg-red-600 border-red-700/20 text-white",
         label: "نشطة",
@@ -268,6 +268,12 @@ export const HospitalityTables: React.FC<{
           color: "bg-yellow-500",
           label: "طلب الحساب",
           border: "border-yellow-600/20",
+        };
+      case TableStatus.BILL_PRINTED:
+        return {
+          color: "bg-blue-600",
+          label: "فاتورة مطبوعة",
+          border: "border-blue-700/20",
         };
       case TableStatus.PAID:
         return {
@@ -312,9 +318,11 @@ export const HospitalityTables: React.FC<{
     const table = tables.find((t) => t.id === tableId);
     if (!table?.currentOrderId) return null;
     if (
-      ![TableStatus.OCCUPIED, TableStatus.PAYMENT_PENDING].includes(
-        table.status,
-      )
+      ![
+        TableStatus.OCCUPIED,
+        TableStatus.PAYMENT_PENDING,
+        TableStatus.BILL_PRINTED,
+      ].includes(table.status)
     )
       return null;
     return activeOrders.find((o) => o.id === table.currentOrderId);
@@ -510,7 +518,8 @@ export const HospitalityTables: React.FC<{
 
     if (
       table.status === TableStatus.OCCUPIED ||
-      table.status === TableStatus.PAYMENT_PENDING
+      table.status === TableStatus.PAYMENT_PENDING ||
+      table.status === TableStatus.BILL_PRINTED
     ) {
       void openOccupiedTableOrder(table);
       return;
@@ -722,6 +731,7 @@ export const HospitalityTables: React.FC<{
                         مدمجة مع طاولة {tables.find((t) => t.id === table.mergedWithId)?.table_number}
                       </span>
                     ) : table.status === TableStatus.OCCUPIED ||
+                        table.status === TableStatus.BILL_PRINTED ||
                         table.status === TableStatus.PAID ? (
                       <span className="text-[7px] sm:text-[9px] md:text-[10px] font-black bg-black/20 px-1 sm:px-2 py-0.5 rounded-full">
                         {table.guestCount || 0} أشخاص
@@ -744,7 +754,8 @@ export const HospitalityTables: React.FC<{
                       </div>
                     )}
                   </div>
-                  {table.status === TableStatus.OCCUPIED && (
+                  {(table.status === TableStatus.OCCUPIED ||
+                    table.status === TableStatus.BILL_PRINTED) && (
                     <div className="absolute top-1 right-1 sm:top-2 sm:right-2 flex items-center gap-0.5 text-[6px] sm:text-[8px] font-black bg-black/40 px-1 sm:px-1.5 py-0.5 rounded-full">
                       <Clock size={6} />
                       <span>{calculateSittingTime((table as any).seated_at || table.seatedAt)}</span>
@@ -822,6 +833,7 @@ export const HospitalityTables: React.FC<{
                             مدمجة مع طاولة {tables.find((t) => t.id === table.mergedWithId)?.table_number}
                           </span>
                         ) : table.status === TableStatus.OCCUPIED ||
+                            table.status === TableStatus.BILL_PRINTED ||
                             table.status === TableStatus.PAID ? (
                           <span
                             className="font-black bg-black/20 px-1.5 py-0.5 rounded-full"
@@ -1006,6 +1018,7 @@ export const HospitalityTables: React.FC<{
                 )}
                 {activePopupTable.status === TableStatus.OCCUPIED ||
                 activePopupTable.status === TableStatus.PAYMENT_PENDING ||
+                activePopupTable.status === TableStatus.BILL_PRINTED ||
                 activePopupTable.status === TableStatus.PAID ||
                 isLoadingActivePopupOrder ||
                 activeOrderError ||
@@ -1288,7 +1301,9 @@ export const HospitalityTables: React.FC<{
                         const hasActiveOrders = allTableOrders.length > 0;
                         const canClear = !hasActiveOrders && (
                           activePopupTable.status === TableStatus.PAID ||
-                          (activePopupTable.status === TableStatus.OCCUPIED && !activePopupTable.currentOrderId)
+                          ((activePopupTable.status === TableStatus.OCCUPIED ||
+                            activePopupTable.status === TableStatus.BILL_PRINTED) &&
+                            !activePopupTable.currentOrderId)
                         );
                         return (
                           <button

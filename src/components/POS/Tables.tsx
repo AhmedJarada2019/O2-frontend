@@ -275,7 +275,7 @@ export const TablesView: React.FC<{
   };
 
   const getStatusConfig = (status: TableStatus, isSelected: boolean = false) => {
-    if (isSelected && status !== TableStatus.OCCUPIED && status !== TableStatus.PENDING_CONFIRMATION) {
+    if (isSelected && status !== TableStatus.OCCUPIED && status !== TableStatus.PENDING_CONFIRMATION && status !== TableStatus.BILL_PRINTED) {
       return {
         color: "bg-red-600 border-red-700/20 text-white",
         label: "نشطة",
@@ -300,6 +300,12 @@ export const TablesView: React.FC<{
           color: "bg-yellow-500",
           label: "طلب الحساب",
           border: "border-yellow-600/20",
+        };
+      case TableStatus.BILL_PRINTED:
+        return {
+          color: "bg-blue-600",
+          label: "فاتورة مطبوعة",
+          border: "border-blue-700/20",
         };
       case TableStatus.PAID:
         return {
@@ -344,9 +350,11 @@ export const TablesView: React.FC<{
     const table = tables.find((t) => t.id === tableId);
     if (!table?.currentOrderId) return null;
     if (
-      ![TableStatus.OCCUPIED, TableStatus.PAYMENT_PENDING].includes(
-        table.status,
-      )
+      ![
+        TableStatus.OCCUPIED,
+        TableStatus.PAYMENT_PENDING,
+        TableStatus.BILL_PRINTED,
+      ].includes(table.status)
     )
       return null;
     return activeOrders.find((o) => o.id === table.currentOrderId);
@@ -408,6 +416,21 @@ export const TablesView: React.FC<{
     }
   };
 
+  // فتح الطاولة في شاشة البيع. لما المكوّن مضمّن جوّا الكاشير (onSelect موجود)
+  // منستدعيه مباشرة؛ ولما نكون بصفحة الطاولات المستقلة (/pos/tables) — onSelect
+  // مش ممرّر — منروح على /pos ومنمرّر الطاولة بالـ query param حتى يفتح طلبها.
+  const openTableInPos = (table: Table) => {
+    setSelectedTable(table);
+    setOrderType(OrderType.DINE_IN);
+    setShowPopup(null);
+    setSeatingTableId(null);
+    if (onSelect) {
+      onSelect(table);
+    } else {
+      navigate(`/pos?tableId=${table.id}`);
+    }
+  };
+
   const handleTableClick = (table: Table) => {
     if (table.status === TableStatus.MERGED) {
       setMergedTableModal(table);
@@ -422,9 +445,7 @@ export const TablesView: React.FC<{
         return;
       }
       // طاولة مشغولة/بانتظار الدفع/... → افتح طلبها مباشرة
-      setSelectedTable(table);
-      setOrderType(OrderType.DINE_IN);
-      onSelect?.(table);
+      openTableInPos(table);
       return;
     }
 
@@ -466,7 +487,8 @@ export const TablesView: React.FC<{
 
     if (
       table.status === TableStatus.OCCUPIED ||
-      table.status === TableStatus.PAYMENT_PENDING
+      table.status === TableStatus.PAYMENT_PENDING ||
+      table.status === TableStatus.BILL_PRINTED
     ) {
       void openOccupiedTableOrder(table);
       return;
@@ -654,7 +676,9 @@ export const TablesView: React.FC<{
                     <span className="text-[10px] font-black bg-black/20 px-2 py-0.5 rounded-full">
                       مدمجة مع {tables.find((t) => t.id === table.mergedWithId)?.table_number}
                     </span>
-                  ) : table.status === TableStatus.OCCUPIED || table.status === TableStatus.PAID ? (
+                  ) : table.status === TableStatus.OCCUPIED ||
+                    table.status === TableStatus.BILL_PRINTED ||
+                    table.status === TableStatus.PAID ? (
                     <span className="text-[10px] font-black bg-black/20 px-2 py-0.5 rounded-full">
                       {table.guestCount || 0} أشخاص
                     </span>
@@ -676,7 +700,8 @@ export const TablesView: React.FC<{
                     </div>
                   )}
                 </div>
-                {table.status === TableStatus.OCCUPIED && (
+                {(table.status === TableStatus.OCCUPIED ||
+                  table.status === TableStatus.BILL_PRINTED) && (
                   <div className="absolute top-2 right-2 flex items-center gap-1 text-[8px] font-black bg-black/40 px-1.5 py-0.5 rounded-full">
                     <Clock size={8} /> {calculateSittingTime(table.seatedAt)}
                   </div>
@@ -824,11 +849,8 @@ export const TablesView: React.FC<{
                   onClick={() => {
                     const table = tables.find((t) => t.id === seatingTableId);
                     if (!table) return;
-                    setSelectedTable(table);
                     seatTable(seatingTableId, guestCount);
-                    setOrderType(OrderType.DINE_IN);
-                    setSeatingTableId(null);
-                    onSelect?.(table);
+                    openTableInPos(table);
                   }}
                   className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-sm shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
                 >
@@ -879,6 +901,7 @@ export const TablesView: React.FC<{
               <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 max-h-[70vh] overflow-y-auto">
                 {activePopupTable.status === TableStatus.OCCUPIED ||
                 activePopupTable.status === TableStatus.PAYMENT_PENDING ||
+                activePopupTable.status === TableStatus.BILL_PRINTED ||
                 activePopupTable.status === TableStatus.PAID ||
                 isLoadingActivePopupOrder ||
                 activeOrderError ||
@@ -1038,12 +1061,7 @@ export const TablesView: React.FC<{
                         )}
 
                         <button
-                          onClick={() => {
-                            setSelectedTable(activePopupTable);
-                            setOrderType(OrderType.DINE_IN);
-                            setShowPopup(null);
-                            onSelect?.(activePopupTable);
-                          }}
+                          onClick={() => openTableInPos(activePopupTable)}
                           className="w-full bg-red-600 text-white py-3 rounded-xl font-black text-xs shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
                         >
                           <ExternalLink size={16} /> فتح الطاولة في شاشة البيع
@@ -1175,10 +1193,7 @@ export const TablesView: React.FC<{
                           <button
                             onClick={() => {
                               loadOrderToPOS(activePopupOrder);
-                              setOrderType(OrderType.DINE_IN);
-                              setTimeout(() => {
-                                onSelect?.(activePopupTable);
-                              }, 100);
+                              openTableInPos(activePopupTable);
                             }}
                             className="bg-red-600 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-lg shadow-red-900/20 flex items-center gap-2"
                           >
@@ -1208,13 +1223,7 @@ export const TablesView: React.FC<{
                               </p>
                             </div>
                             <button
-                              onClick={() => {
-                                setSelectedTable(activePopupTable);
-                                setOrderType(OrderType.DINE_IN);
-                                setTimeout(() => {
-                                  onSelect?.(activePopupTable);
-                                }, 100);
-                              }}
+                              onClick={() => openTableInPos(activePopupTable)}
                               className="w-full bg-blue-600 text-white py-3 rounded-xl font-black text-xs shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
                             >
                               <Plus size={16} /> فتح فاتورة جديدة
@@ -1230,14 +1239,7 @@ export const TablesView: React.FC<{
                           </p>
                         </div>
                       <button
-                        onClick={() => {
-                          setSelectedTable(activePopupTable);
-                          setOrderType(OrderType.DINE_IN);
-                          setTimeout(() => {
-                            onSelect?.(activePopupTable);
-                          }, 100);
-                          setShowPopup(null);
-                        }}
+                        onClick={() => openTableInPos(activePopupTable)}
                         className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-sm shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
                       >
                         <Plus size={18} /> إضافة طلب جديد
@@ -1252,7 +1254,7 @@ export const TablesView: React.FC<{
                       <button
                         onClick={() => {
                           if (activePopupTable.status === TableStatus.PAID || 
-                              (activePopupTable.status === TableStatus.OCCUPIED && !activePopupTable.currentOrderId)) {
+                              ((activePopupTable.status === TableStatus.OCCUPIED || activePopupTable.status === TableStatus.BILL_PRINTED) && !activePopupTable.currentOrderId)) {
                             updateTableStatus(
                               activePopupTable.id,
                               TableStatus.AVAILABLE,
@@ -1263,10 +1265,10 @@ export const TablesView: React.FC<{
                           }
                         }}
                         disabled={!(activePopupTable.status === TableStatus.PAID || 
-                          (activePopupTable.status === TableStatus.OCCUPIED && !activePopupTable.currentOrderId))}
+                          ((activePopupTable.status === TableStatus.OCCUPIED || activePopupTable.status === TableStatus.BILL_PRINTED) && !activePopupTable.currentOrderId))}
                         className={`flex flex-col items-center gap-1 sm:gap-2 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 transition-all ${
                           activePopupTable.status === TableStatus.PAID ||
-                          (activePopupTable.status === TableStatus.OCCUPIED && !activePopupTable.currentOrderId)
+                          ((activePopupTable.status === TableStatus.OCCUPIED || activePopupTable.status === TableStatus.BILL_PRINTED) && !activePopupTable.currentOrderId)
                             ? "bg-slate-800 hover:bg-slate-700 cursor-pointer"
                             : "bg-slate-900 opacity-50 cursor-not-allowed"
                         }`}

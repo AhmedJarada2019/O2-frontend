@@ -98,6 +98,7 @@ const STATUS_CONFIG: Record<string, { label: string; labelAr: string; color: str
   OCCUPIED: { label: "Occupied", labelAr: "مشغول", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", dot: "bg-amber-400" },
   RESERVED: { label: "Reserved", labelAr: "محجوز", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", dot: "bg-blue-400" },
   PAYMENT_PENDING: { label: "Payment", labelAr: "بانتظار الدفع", color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", dot: "bg-purple-400" },
+  BILL_PRINTED: { label: "Bill Printed", labelAr: "فاتورة مطبوعة", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", dot: "bg-blue-400" },
   CLEANING: { label: "Cleaning", labelAr: "تنظيف", color: "text-slate-400", bg: "bg-slate-500/10", border: "border-slate-500/20", dot: "bg-slate-400" },
   OUT_OF_SERVICE: { label: "Out of Service", labelAr: "خارج الخدمة", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20", dot: "bg-red-400" },
   PAID: { label: "Paid", labelAr: "مدفوع", color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", dot: "bg-emerald-400" },

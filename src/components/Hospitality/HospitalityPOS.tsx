@@ -631,7 +631,8 @@ export const HospitalityPOS: React.FC = () => {
 
     const isActiveTable =
       selectedTable.status === TableStatus.OCCUPIED ||
-      selectedTable.status === TableStatus.PAYMENT_PENDING;
+      selectedTable.status === TableStatus.PAYMENT_PENDING ||
+      selectedTable.status === TableStatus.BILL_PRINTED;
 
     // إذا كانت السلة مليئة أو في وضع التعديل، لا نفعل شيئاً
     if (editingApiOrderId || currentCart.length > 0) return;
@@ -744,7 +745,8 @@ export const HospitalityPOS: React.FC = () => {
 
     const isActiveTable =
       table.status === TableStatus.OCCUPIED ||
-      table.status === TableStatus.PAYMENT_PENDING;
+      table.status === TableStatus.PAYMENT_PENDING ||
+      table.status === TableStatus.BILL_PRINTED;
 
     if (isActiveTable) {
       try {
@@ -872,14 +874,9 @@ export const HospitalityPOS: React.FC = () => {
       setEditingApiOrderId(null);
 
       // Call print-invoice API
-      // pos_register_id: هوية محطة الكاشير الفعلية - لازم نرسلها صراحة وإلا
-      // السيرفر بيخمّن أي طابعة كاشير فعّالة بالفرع (سبب طباعة فاتورة محطة
-      // على طابعة محطة تانية لما يصير أكتر من كاشير واحد بنفس الفرع).
       setIsPrinting(true);
       try {
-        await api.post(`/orders/${result.id}/print-invoice`, {
-          pos_register_id: posInfo?.id ?? null,
-        });
+        await api.post(`/orders/${result.id}/print-invoice`);
         toast.success("تم إرسال الفاتورة إلى الطابعة بنجاح 🖨️", `الطاولة #${manualTable}`);
       } catch (printErr: any) {
         const msg = printErr.response?.data?.message || "فشل إرسال الفاتورة للطابعة";

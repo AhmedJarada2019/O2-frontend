@@ -360,6 +360,36 @@ const handleActivationSuccess = (activatedInfo: any) => {
     return () => { cancelled = true; };
   }, [searchParams]);
 
+  // ── قراءة tableId من الرابط (قادمين من صفحة الطاولات المستقلة /pos/tables)
+  //    وفتح طلب الطاولة تلقائياً بشاشة البيع مع فتح السلة ──
+  const handledTableParamRef = useRef<string | null>(null);
+  useEffect(() => {
+    const tableIdParam = searchParams.get("tableId");
+    if (!tableIdParam) return;
+    if (handledTableParamRef.current === tableIdParam) return;
+
+    const table = tables?.find((t) => String(t.id) === String(tableIdParam));
+    if (!table) return; // الطاولات لسا ما تحمّلت — رح يعيد المحاولة لما توصل
+
+    handledTableParamRef.current = tableIdParam;
+
+    // تنظيف الرابط بعد القراءة
+    const newSearchParams = new URLSearchParams(searchParams);
+    newSearchParams.delete("tableId");
+    const newUrl = `${window.location.pathname}${newSearchParams.toString() ? "?" + newSearchParams.toString() : ""}`;
+    window.history.replaceState({}, "", newUrl);
+
+    setActivePOSMode("menu");
+    setCartOrderType(OrderType.DINE_IN);
+    setSelectedTable(table);
+    setManualTable(table.table_number || table.number.toString());
+    setIsCartOpen(true);
+    void loadApiOrderForTable(table, false).catch((err) => {
+      console.error("Failed to load table order from tableId param:", err);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tables]);
+
   // ── جلب بيانات الفاتورة عند تعديل طلب موجود ──
   useEffect(() => {
     if (!editingApiOrderId) {
@@ -846,7 +876,8 @@ const handleActivationSuccess = (activatedInfo: any) => {
 
     const isActiveTable =
       selectedTable.status === TableStatus.OCCUPIED ||
-      selectedTable.status === TableStatus.PAYMENT_PENDING;
+      selectedTable.status === TableStatus.PAYMENT_PENDING ||
+      selectedTable.status === TableStatus.BILL_PRINTED;
 
     if (!isActiveTable || editingApiOrderId || currentCart.length > 0) return;
 
@@ -888,7 +919,8 @@ const handleActivationSuccess = (activatedInfo: any) => {
   const isActiveTableForPolling =
     !!selectedTable &&
     (selectedTable.status === TableStatus.OCCUPIED ||
-      selectedTable.status === TableStatus.PAYMENT_PENDING);
+      selectedTable.status === TableStatus.PAYMENT_PENDING ||
+      selectedTable.status === TableStatus.BILL_PRINTED);
 
   const checkTableForUpdates = useCallback(async () => {
     if (!selectedTable || userActiveEditRef.current) return;
@@ -995,7 +1027,8 @@ const handleActivationSuccess = (activatedInfo: any) => {
 
     const isActiveTable =
       table.status === TableStatus.OCCUPIED ||
-      table.status === TableStatus.PAYMENT_PENDING;
+      table.status === TableStatus.PAYMENT_PENDING ||
+      table.status === TableStatus.BILL_PRINTED;
 
     if (isActiveTable) {
       try {
@@ -1049,8 +1082,10 @@ const handlePrintInvoice = async (
     // mode: departments = نسخ الأقسام فقط | merged = الفاتورة المدمجة فقط | all = الاثنين
     // pos_register_id: هوية محطة الكاشير الفعلية (من تفعيل الجهاز) — لازم
     // نرسلها صراحة، وإلا السيرفر بيرفض الطباعة (أو يخمّن محطة غلط قديمًا).
-    // ‼️ هاد السطر اختفى مرتين سابقًا بدون تفسير واضح - لو بتلمس هالدالة
-    // لأي سبب، تأكد إنه pos_register_id يضل موجود بجسم الطلب.
+    // ‼️ هاد السطر اختفى 3 مرات سابقًا (2026-09-09، 2026-09-10، 2026-09-12)
+    // بدون تفسير واضح كل مرة - على الأغلب نسخة قديمة محلية عند مطور تاني
+    // بتكتب فوق هالملف. لو بتلمس هالدالة لأي سبب، تأكد إنه pos_register_id
+    // يضل موجود بجسم الطلب، وبلّغ فورًا لو لقيته اختفى تاني.
     const response = await api.post(`/orders/${orderId}/print-invoice`, {
       mode,
       pos_register_id: posInfo?.id ?? null,

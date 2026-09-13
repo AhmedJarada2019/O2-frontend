@@ -1358,8 +1358,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             </button>
           </div>
         ) : (
-          /* محلي: 3 أزرار — حفظ, تنفيذ (دفع+إغلاق), طباعة */
-          <div className="grid grid-cols-3 gap-2 pt-1">
+          /* محلي: حفظ, تنفيذ (دفع+إغلاق), طباعة (أقسام), فاتورة فقط (فاتورة الزبون) */
+          <div className="grid grid-cols-4 gap-1.5 pt-1">
             <button
               onClick={() => {
                 if (cartOrderType === OrderType.DINE_IN && !manualTable) {
@@ -1430,10 +1430,41 @@ export const CartPanel: React.FC<CartPanelProps> = ({
               onClick={() => handlePrintInvoice?.(editingOrderId, "departments")}
               disabled={currentCart.length === 0 || isPrinting}
               data-inv-stop="action"
-              className="py-2.5 sm:py-3 bg-blue-600 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1.5 hover:bg-blue-700 shadow-xl shadow-blue-900/20 disabled:opacity-30 transition-all active:scale-95"
+              className="py-2.5 sm:py-3 bg-blue-600 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1 hover:bg-blue-700 shadow-xl shadow-blue-900/20 disabled:opacity-30 transition-all active:scale-95"
             >
-              {isPrinting ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+              {isPrinting ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />}
               {isPrinting ? "..." : "طباعة"}
+            </button>
+            {/* فاتورة الزبون فقط — نسخة الكاشير المدمجة (سعر + خصم + إجمالي).
+                لو الطلب لسا ما انحفظ منحفظه (pending فقط — بلا مطبخ/دفع/إغلاق)
+                ثم منطبع الفاتورة. */}
+            <button
+              onClick={async () => {
+                let orderId: string | number | null | undefined = editingOrderId;
+                if (!orderId) {
+                  if (cartOrderType === OrderType.DINE_IN && !manualTable) {
+                    setPosError("يرجى إدخال رقم الطاولة أولاً");
+                    return;
+                  }
+                  const result = await submitOrder(
+                    OrderStatus.PENDING,
+                    paymentMethod,
+                    calculatedDiscount,
+                    { name: customerName, phone: customerPhone, note: invoiceNote },
+                    undefined,
+                    false, // ما نمسح السلة
+                    { skipSync: true },
+                  );
+                  orderId = result?.id ?? null;
+                }
+                if (orderId) handlePrintInvoice?.(orderId, "merged");
+              }}
+              disabled={currentCart.length === 0 || isPrinting || isSubmitting}
+              data-inv-stop="action"
+              className="py-2.5 sm:py-3 bg-slate-700 text-white rounded-xl font-black text-[9px] sm:text-[10px] flex items-center justify-center gap-1 hover:bg-slate-600 disabled:opacity-30 transition-all active:scale-95"
+            >
+              {isPrinting || isSubmitting ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />}
+              فاتورة فقط
             </button>
           </div>
         )}
